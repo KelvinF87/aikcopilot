@@ -1,0 +1,174 @@
+{
+  "name": "aik-pilot",
+  "displayName": "AIK-Pilot",
+  "description": "Expert AI Code Assistant",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other",
+    "LLMs"
+  ],
+  "activationEvents": [
+    "onCommand:aik-pilot.openChat",
+    "onLanguage:*",
+    "onView:aikPilotChatView"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aik-pilot.helloWorld",
+        "title": "AIK-Pilot: Hello World",
+        "category": "AIK-Pilot"
+      },
+      {
+        "command": "aik-pilot.openChat",
+        "title": "AIK-Pilot: Open Chat",
+        "category": "AIK-Pilot"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aik-pilot-sidebar",
+          "title": "AIK-Pilot",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "aik-pilot-sidebar": [
+        {
+          "id": "aikPilotChatView",
+          "name": "Chat",
+          "type": "webview",
+          "contextualTitle": "AIK-Pilot Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AIK-Pilot",
+      "properties": {
+        "aik-pilot.modelType": {
+          "type": "string",
+          "enum": ["openai", "llama"],
+          "default": "llama",
+          "description": "API style compatibility (OpenAI or LLaMA via OpenRouter/Ollama). Affects API path expectations slightly if needed."
+        },
+        "aik-pilot.activeProvider": {
+          "type": "string",
+          "enum": ["ollama", "openai", "openrouter"],
+          "default": "ollama",
+          "description": "Select the active LLM provider to use for chat and completions."
+        },
+        "aik-pilot.providers": {
+          "type": "object",
+          "description": "Configuration specific to each LLM provider.",
+          "default": {
+            "ollama": {
+              "displayName": "Ollama (Local)",
+              "endpointUrl": "http://localhost:11434/v1",
+              "modelName": "llama3",
+              "apiKey": null
+            },
+            "openai": {
+              "displayName": "OpenAI",
+              "endpointUrl": "https://api.openai.com/v1",
+              "modelName": "gpt-4o-mini",
+              "apiKey": ""
+            },
+            "openrouter": {
+              "displayName": "OpenRouter",
+              "endpointUrl": "https://openrouter.ai/api/v1",
+              "modelName": "mistralai/mistral-7b-instruct",
+              "apiKey": ""
+            }
+          },
+          "properties": {
+            ".*": {
+              "type": "object",
+              "required": ["displayName", "endpointUrl", "modelName"],
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "endpointUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "modelName": {
+                  "type": "string"
+                },
+                "apiKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "secret": true
+                }
+              }
+            }
+          }
+        },
+        "aik-pilot.systemPrompt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "You are a coding assistant. Respond ONLY with the requested programming code. Do not include any explanations, introductions, or conversational text. Output only the raw code.",
+          "description": "System prompt to guide the AI's behavior (e.g., to only output code). Set to empty or null to disable.",
+          "scope": "window"
+        },
+        "aik-pilot.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Controls randomness (0=deterministic, >1 more creative)."
+        },
+        "aik-pilot.maxTokens": {
+          "type": "integer",
+          "default": 512,
+          "minimum": 1,
+          "description": "Maximum number of tokens to generate in the response."
+        },
+        "aik-pilot.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable code autocompletion feature."
+        },
+        "aik-pilot.completion.debounceMs": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 50,
+          "description": "Delay (ms) before triggering completion request after typing stops."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.14.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^8.28.0",
+    "@typescript-eslint/parser": "^8.28.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.23.0",
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "axios": "^1.8.4"
+  }
+}
