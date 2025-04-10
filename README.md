@@ -5,7 +5,7 @@
 
 **AIK-Pilot** es una extensión para Visual Studio Code diseñada para ser tu compañero experto en programación, impulsado por modelos de lenguaje grandes (LLMs). Obtén ayuda con código, explicaciones, refactorizaciones y autocompletado directamente en tu editor.
 
-![Screenshot de AIK-Pilot (Opcional - Añade una imagen aquí)](./src/img/chat.png) <!-- Añade una captura de pantalla si tienes -->
+![Screenshot de AIK-Pilot (Opcional - Añade una imagen aquí)](./img/chat.png) <!-- Añade una captura de pantalla si tienes -->
 
 ## ✨ Funcionalidades Principales
 
