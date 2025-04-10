@@ -148,6 +148,14 @@
       }
     }
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KelvinF87/aikcopilot.git"
+  },
+  "homepage": "https://github.com/KelvinF87/aikcopilot#readme",
+  "bugs": {
+    "url": "https://github.com/KelvinF87/aikcopilot/issues"
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
