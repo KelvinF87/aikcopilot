@@ -6,8 +6,5 @@ src/**
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
-**/*.map
-out/**          # Excluir si tu compilación va a 'dist' o similar
-*.map           # Excluir source maps
 **/*.ts
 **/.vscode-test.*
