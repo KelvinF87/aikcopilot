@@ -1,76 +1,202 @@
+/* style.css */
 body {
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
     color: var(--vscode-editor-foreground);
-    background-color: var(--vscode-sideBar-background); /* O editor background */
+    background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
     padding: 10px;
     display: flex;
     flex-direction: column;
     height: 100vh;
     box-sizing: border-box;
+    overflow: hidden; /* Prevent body scrolling */
 }
 
 #chat-container {
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 100%;
 }
 
+/* --- Controls Area --- */
+#controls-area {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Spacing between elements */
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-editorGroup-border));
+    flex-wrap: wrap; /* Allow wrapping on smaller widths */
+    flex-shrink: 0; /* Prevent this area from shrinking */
+}
+
+#controls-area label {
+    flex-shrink: 0; /* Prevent label from shrinking */
+    font-size: 0.9em; /* Slightly smaller label */
+}
+
+#provider-selector {
+    padding: 4px 8px; /* Slightly more padding */
+    border: 1px solid var(--vscode-dropdown-border);
+    background-color: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border-radius: 3px;
+    min-width: 100px; /* Give it some base width */
+    flex-grow: 1; /* Allow it to grow */
+    font-size: 0.9em;
+}
+
+#provider-selector:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+    border-color: var(--vscode-focusBorder); /* Also change border color on focus */
+}
+
+.control-button { /* Style for New/Export buttons */
+    padding: 4px 10px; /* Match selector padding */
+    border: 1px solid var(--vscode-button-secondaryBorder, var(--vscode-button-border, var(--vscode-input-border))); /* Use secondary or fallback */
+    background-color: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 0.9em;
+    white-space: nowrap; /* Prevent button text wrapping */
+}
+
+.control-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+.control-button:active {
+    background-color: var(--vscode-button-background); /* Use primary on click */
+    color: var(--vscode-button-foreground);
+    border-color: var(--vscode-focusBorder);
+}
+
+
+/* --- Message List --- */
 #message-list {
     flex-grow: 1;
-    overflow-y: auto;
+    overflow-y: auto; /* Enable vertical scrolling */
     margin-bottom: 10px;
-    padding-right: 5px; /* For scrollbar */
+    padding-right: 5px; /* Space for scrollbar */
+    scroll-behavior: smooth; /* Smooth scrolling */
 }
 
 .message {
     padding: 8px 12px;
     border-radius: 8px;
-    margin-bottom: 8px;
-    max-width: 85%;
-    word-wrap: break-word; /* Wrap long words */
-    white-space: pre-wrap; /* Preserve whitespace and wrap */
+    margin-bottom: 10px; /* Increased margin */
+    max-width: 90%; /* Slightly wider max */
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    line-height: 1.5; /* Improve readability */
 }
 
 .user-message {
     background-color: var(--vscode-list-activeSelectionBackground);
     color: var(--vscode-list-activeSelectionForeground);
-    align-self: flex-end;
     margin-left: auto; /* Align to right */
+    border-bottom-right-radius: 2px; /* Slightly sharper corner */
 }
 
 .bot-message {
-    background-color: var(--vscode-list-inactiveSelectionBackground); /* Slightly different background */
-    color: var(--vscode-editor-foreground);
-    align-self: flex-start;
+    background-color: var(--vscode-editorWidget-background, var(--vscode-list-inactiveSelectionBackground)); /* Use editor widget bg */
+    color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-sideBar-border)); /* Add subtle border */
     margin-right: auto; /* Align to left */
+    border-bottom-left-radius: 2px;
 }
 
-/* Basic styling for code blocks within messages */
-.bot-message pre {
-  background-color: var(--vscode-textCodeBlock-background);
-  padding: 10px;
-  border-radius: 4px;
-  overflow-x: auto; /* Add horizontal scroll for long code lines */
-  font-family: var(--vscode-editor-font-family); /* Use editor font for code */
-  font-size: var(--vscode-editor-font-size);
+/* Paragraphs inside bot messages */
+.bot-message p {
+    margin-top: 0.2em;
+    margin-bottom: 0.5em;
 }
-.bot-message code:not(pre code) { /* Inline code */
+.bot-message p:first-child {
+    margin-top: 0;
+}
+.bot-message p:last-child {
+    margin-bottom: 0;
+}
+
+
+/* --- Code Blocks & Inline Code --- */
+.code-block-wrapper {
+    position: relative;
+    margin: 10px 0; /* Vertical margin for code blocks */
+}
+
+.bot-message pre,
+.code-block-wrapper pre {
+    background-color: var(--vscode-textCodeBlock-background);
+    padding: 12px; /* More padding */
+    padding-top: 35px; /* Space for button */
+    border-radius: 4px;
+    overflow-x: auto; /* Horizontal scroll */
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    line-height: 1.4; /* Code line height */
+    border: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border)); /* Border for code block */
+}
+
+/* Inline code (using backticks `code`) */
+.bot-message code:not(pre code) {
    background-color: var(--vscode-textCodeBlock-background);
    padding: 0.2em 0.4em;
    border-radius: 3px;
+   font-family: var(--vscode-editor-font-family);
+   font-size: 0.95em; /* Slightly smaller than block code */
 }
 
+/* Copy Code Button */
+.copy-code-button {
+    position: absolute;
+    top: 6px; /* Adjust position */
+    right: 6px;
+    padding: 2px 8px; /* Adjust padding */
+    font-size: 0.85em;
+    background-color: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.2s ease-in-out;
+}
+.code-block-wrapper:hover .copy-code-button {
+    opacity: 1; /* Show button clearly on hover */
+}
+.copy-code-button:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+    opacity: 1;
+}
+.copy-code-button:active {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+.copy-code-button.copied {
+    background-color: var(--vscode-statusBarItem-remoteBackground);
+    color: var(--vscode-statusBarItem-remoteForeground);
+    cursor: default;
+    opacity: 1;
+}
+.copy-code-button:disabled { /* Style when button is briefly disabled after copy */
+    cursor: default;
+    opacity: 0.8;
+}
 
+/* --- Input Area --- */
 #input-area {
     display: flex;
     border-top: 1px solid var(--vscode-sideBar-border, var(--vscode-editorGroup-border));
     padding-top: 10px;
+    flex-shrink: 0; /* Prevent input area from shrinking */
 }
 
 #user-input {
     flex-grow: 1;
-    resize: none; /* Prevent manual resize */
+    resize: none;
     padding: 8px;
     border: 1px solid var(--vscode-input-border);
     background-color: var(--vscode-input-background);
@@ -79,10 +205,12 @@ body {
     margin-right: 5px;
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
+    line-height: 1.5;
 }
 
 #user-input:focus {
     outline: 1px solid var(--vscode-focusBorder);
+    border-color: var(--vscode-focusBorder);
 }
 
 #send-button {
@@ -92,81 +220,20 @@ body {
     color: var(--vscode-button-foreground);
     border-radius: 4px;
     cursor: pointer;
+    font-weight: bold; /* Make send button stand out */
 }
 
 #send-button:hover {
     background-color: var(--vscode-button-hoverBackground);
 }
 
+/* --- Status Area --- */
 #status-area {
-    display: none; /* Oculto por defecto */
-    padding: 5px;
+    display: none; /* Hidden by default */
+    padding: 5px 0; /* Padding top/bottom only */
     font-style: italic;
     color: var(--vscode-descriptionForeground);
+    text-align: center; /* Center the thinking text */
+    font-size: 0.9em;
+    flex-shrink: 0;
 }
-/* Estilo para el contenedor de pre (para posicionar el botón) */
-.code-block-wrapper {
-    position: relative; /* Necesario para posicionar el botón absolutamente */
-    margin-bottom: 8px; /* Igual que el margen de .message */
-}
-
-/* Estilos básicos para bloques de código (ya deberías tener algo similar) */
-.bot-message pre,
-.code-block-wrapper pre { /* Aplicar a ambos por si acaso */
-  background-color: var(--vscode-textCodeBlock-background);
-  padding: 10px;
-  padding-top: 25px; /* Más espacio arriba para el botón */
-  border-radius: 4px;
-  overflow-x: auto;
-  font-family: var(--vscode-editor-font-family);
-  font-size: var(--vscode-editor-font-size);
-  margin: 5px 0; /* Añadir margen vertical */
-  position: relative; /* Asegurar que esté en el flujo normal */
-}
-.bot-message code:not(pre code),
-.code-block-wrapper code:not(pre code) { /* Inline code */
-   background-color: var(--vscode-textCodeBlock-background);
-   padding: 0.2em 0.4em;
-   border-radius: 3px;
-}
-
-
-/* Estilo para el botón de copia */
-.copy-code-button {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    padding: 2px 6px;
-    font-size: 0.8em; /* Más pequeño */
-    background-color: var(--vscode-button-secondaryBackground); /* Color secundario */
-    color: var(--vscode-button-secondaryForeground);
-    border: 1px solid var(--vscode-button-border, transparent);
-    border-radius: 3px;
-    cursor: pointer;
-    opacity: 0.7; /* Ligeramente transparente hasta hover */
-    transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
-}
-
-.copy-code-button:hover {
-    background-color: var(--vscode-button-secondaryHoverBackground);
-    opacity: 1;
-}
-
- .copy-code-button:active {
-     background-color: var(--vscode-button-background); /* Usar color primario al hacer clic */
-     color: var(--vscode-button-foreground);
- }
-
-.copy-code-button.copied {
-    background-color: var(--vscode-statusBarItem-remoteBackground); /* Un color diferente para indicar copiado */
-    color: var(--vscode-statusBarItem-remoteForeground);
-    cursor: default;
-}
-
-/* Ajuste para el mensaje del bot para que contenga los wrappers */
- .bot-message {
-     /* ... tus estilos existentes ... */
-     display: flex; /* Permitir que los hijos controlen su tamaño */
-     flex-direction: column; /* Apilar texto normal y bloques de código */
-     align-items: flex-start; /* Alinear a la izquierda */
- }

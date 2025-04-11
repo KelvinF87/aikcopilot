@@ -1,89 +1,67 @@
-import * as vscode from 'vscode'; // Asegurar import de vscode
-import { ChatViewProvider } from './chat/chatViewProvider'; // Importar ChatViewProvider
-import { CompletionProvider } from './providers/completionProvider'; // Importar CompletionProvider (asegura que el archivo exista)
-import { LlmService } from './llmService'; // Importar LlmService
-import { ConfigManager } from './utils/configManager'; // Importar ConfigManager
-// Asegúrate de tener un logger o usa console.log/error
-// import { Logger } from './utils/logger';
-const Logger = console; // Usar console como fallback
+// src/extension.ts
+// (Sin cambios respecto a la versión anterior, ya estaba correcta)
 
-// ***** SÓLO UNA FUNCIÓN ACTIVATE *****
+import * as vscode from 'vscode';
+import { ChatViewProvider } from './chat/chatViewProvider';
+import { CompletionProvider } from './providers/completionProvider';
+import { LlmService } from './llmService';
+import { ConfigManager } from './utils/configManager';
+
+const Logger = console;
+
 export function activate(context: vscode.ExtensionContext) {
-    Logger.log('!!! activate STARTING !!!');
+    Logger.log('!!! Iniciando activación de AIK-Pilot !!!');
 
-    // Logger.init(); // Si usas logger propio
-
-    // --- Instanciación en orden correcto ---
-    Logger.log('Attempting to create ConfigManager...');
-    // Usa el nombre de la CLASE para instanciar
+    // Instanciar Clases
     const configManager = new ConfigManager();
-    Logger.log('ConfigManager instance CREATED.');
-
-    Logger.log('Attempting to create LlmService...');
-     // Usa el nombre de la CLASE para instanciar, pasa la instancia configManager
     const llmService = new LlmService(configManager);
-    Logger.log('LlmService instance CREATED.');
-
-    Logger.log('Attempting to create ChatViewProvider...');
-    // Usa el nombre de la CLASE para instanciar
     const chatProvider = new ChatViewProvider(context.extensionUri, llmService, configManager);
-    Logger.log('ChatViewProvider instance CREATED.');
-
-    Logger.log('Attempting to create CompletionProvider...');
-    // Usa el nombre de la CLASE para instanciar
     const completionProvider = new CompletionProvider(llmService, configManager);
-    Logger.log('CompletionProvider instance CREATED.');
-    // --- Fin Instanciación ---
 
+    // --- Registrar ---
+    Logger.log(`>>> Registrando WebviewViewProvider: '${ChatViewProvider.viewType}'`);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            ChatViewProvider.viewType, chatProvider, { webviewOptions: { retainContextWhenHidden: true } }
+        )
+    );
 
-    // --- Registro de Proveedores y Comandos ---
-    Logger.log(`>>> Registering WebviewViewProvider for viewType: '${ChatViewProvider.viewType}'`);
-    try {
-        context.subscriptions.push(
-            vscode.window.registerWebviewViewProvider(
-                 // Usa la propiedad estática de la CLASE importada
-                ChatViewProvider.viewType,
-                chatProvider // Pasa la INSTANCIA
-            )
-        );
-        Logger.log(`>>> registerWebviewViewProvider call SUCCEEDED for '${ChatViewProvider.viewType}'`);
-    } catch (error) {
-        Logger.error(`>>> registerWebviewViewProvider call FAILED for '${ChatViewProvider.viewType}':`, error);
-    }
+    Logger.log(">>> Registrando CompletionProvider...");
+    const supportedLanguages = ['*'];
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+             supportedLanguages.map(lang => ({ scheme: 'file', language: lang })),
+             completionProvider, '.' // Trigger inicial
+        )
+    );
 
-    Logger.log(">>> Registering CompletionProvider...");
-    try {
-        context.subscriptions.push(
-            vscode.languages.registerCompletionItemProvider(
-                 { scheme: 'file' }, // Aplicar a archivos
-                 completionProvider, // Pasa la INSTANCIA
-                 '.' // Trigger character (opcional)
-            )
-        );
-         Logger.log(">>> CompletionProvider registered.");
-    } catch (error) {
-         Logger.error(`>>> CompletionProvider registration FAILED:`, error);
-    }
-
-
-    Logger.log(">>> Registering 'aik-pilot.helloWorld' command...");
-    try {
-        let helloWorldCommand = vscode.commands.registerCommand('aik-pilot.helloWorld', () => {
+    // Comandos
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aik-pilot.helloWorld', () => {
            vscode.window.showInformationMessage('Hello World from AIK-Pilot!');
-       });
-       context.subscriptions.push(helloWorldCommand);
-       Logger.log(">>> 'aik-pilot.helloWorld' command registered.");
-    } catch (error) {
-        Logger.error(`>>> 'aik-pilot.helloWorld' command registration FAILED:`, error);
-    }
-    // --- Fin Registro ---
+       })
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aik-pilot.openChat', () => {
+            vscode.commands.executeCommand('workbench.view.extension.aik-pilot-sidebar');
+        })
+    );
 
-    Logger.log('!!! activate FINISHED !!!');
+    // Listener Configuración
+    Logger.log(">>> Registrando Listener Configuración...");
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('aik-pilot.activeProvider') || e.affectsConfiguration('aik-pilot.providers')) {
+                Logger.log("[Extensión] Config proveedor cambiada, notificando ChatView...");
+                chatProvider.sendInitialDataToWebview();
+            }
+            // Añadir más checks si es necesario
+        })
+    );
+
+    Logger.log('!!! Activación de AIK-Pilot FINALIZADA !!!');
 }
-// ***** FIN FUNCIÓN ACTIVATE *****
 
-
-// Función deactivate (opcional pero buena práctica)
 export function deactivate() {
-    Logger.log('!!! deactivate CALLED !!!');
+    Logger.log('!!! Desactivando AIK-Pilot !!!');
 }

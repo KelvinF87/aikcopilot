@@ -53,13 +53,20 @@
       "properties": {
         "aik-pilot.modelType": {
           "type": "string",
-          "enum": ["openai", "llama"],
+          "enum": [
+            "openai",
+            "llama"
+          ],
           "default": "llama",
           "description": "API style compatibility (OpenAI or LLaMA via OpenRouter/Ollama). Affects API path expectations slightly if needed."
         },
         "aik-pilot.activeProvider": {
           "type": "string",
-          "enum": ["ollama", "openai", "openrouter"],
+          "enum": [
+            "ollama",
+            "openai",
+            "openrouter"
+          ],
           "default": "ollama",
           "description": "Select the active LLM provider to use for chat and completions."
         },
@@ -89,7 +96,11 @@
           "properties": {
             ".*": {
               "type": "object",
-              "required": ["displayName", "endpointUrl", "modelName"],
+              "required": [
+                "displayName",
+                "endpointUrl",
+                "modelName"
+              ],
               "properties": {
                 "displayName": {
                   "type": "string"
@@ -167,12 +178,13 @@
   "devDependencies": {
     "@types/axios": "^0.14.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
+    "@types/node": "^20.17.30",
     "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^8.28.0",
     "@typescript-eslint/parser": "^8.28.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.3.2",
     "eslint": "^9.23.0",
     "typescript": "^5.8.2"
   },

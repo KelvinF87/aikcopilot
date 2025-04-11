@@ -1,26 +1,33 @@
+// src/chat/chatViewProvider.ts
+
 import * as vscode from 'vscode';
-import { LlmService } from '../llmService'; // Ajusta ruta si es necesario
-import { ConfigManager } from '../utils/configManager'; // Ajusta ruta
-// Asegúrate de tener un logger funcional o usa console
-// import { Logger } from '../utils/logger';
-const Logger = console; // Usar console como fallback si Logger no está configurado
+import { LlmService } from '../llmService';
+import { ConfigManager } from '../utils/configManager';
+import * as path from 'path';
+import * as os from 'os';
+
+const Logger = console;
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
 }
 
-// Constantes para la memoria de conversación
-const MAX_MEMORY_INTERACTIONS = 5; // Interacciones (user + bot) a recordar
-const MAX_MESSAGES_TO_SEND = (MAX_MEMORY_INTERACTIONS * 2) + 1; // Mensajes totales (incluyendo el actual)
+// Interfaz para estado de mensaje en progreso (para historial mientras streamea)
+interface PendingMessage extends ChatMessage {
+    id: string;
+    isStreaming?: boolean;
+}
+
+const MAX_MEMORY_INTERACTIONS = 5;
+const MAX_MESSAGES_TO_SEND = (MAX_MEMORY_INTERACTIONS * 2) + 1;
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'aikPilotChatView'; // Debe coincidir con package.json
+    public static readonly viewType = 'aikPilotChatView';
 
-    // Propiedades de la instancia
     private _view?: vscode.WebviewView;
-    // *** HACER EL HISTORIAL MUTABLE (quitar readonly) ***
-    private _conversationHistory: ChatMessage[] = []; // Almacena TODOS los mensajes
+    // Modificar historial para poder incluir mensajes en progreso
+    private _conversationHistory: (ChatMessage | PendingMessage)[] = [];
     private _currentViewDisposables: vscode.Disposable[] = [];
     private readonly _extensionUri: vscode.Uri;
     private readonly _llmService: LlmService;
@@ -37,7 +44,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         Logger.log("[ChatViewProvider] Constructed.");
     }
 
-    // Método principal llamado por VS Code para inicializar la vista
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -45,276 +51,265 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     ): void | Thenable<void> {
         Logger.log(">>> [ChatViewProvider] resolveWebviewView START");
         this._view = webviewView;
-        Logger.log(">>> [ChatViewProvider] _view assigned.");
-
         this._disposeCurrentViewListeners();
 
-        // Configurar opciones de la webview
-        try {
-            Logger.log(">>> [ChatViewProvider] Setting webview.options...");
-            webviewView.webview.options = {
-                enableScripts: true,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(this._extensionUri, 'src', 'chat', 'webview'),
-                    vscode.Uri.joinPath(this._extensionUri, 'media')
-                ]
-            };
-            Logger.log(">>> [ChatViewProvider] webview.options SET successfully.");
-        } catch (error) {
-            Logger.error(`>>> [ChatViewProvider] ERROR setting webview.options: ${error}`);
-            return;
-        }
+        webviewView.webview.options = { enableScripts: true, localResourceRoots: [ /*...*/ vscode.Uri.joinPath(this._extensionUri, 'src', 'chat', 'webview'), vscode.Uri.joinPath(this._extensionUri, 'media')] };
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
-        // Asignar el contenido HTML a la webview
-        try {
-            Logger.log(">>> [ChatViewProvider] Calling _getHtmlForWebview...");
-            const htmlContent = this._getHtmlForWebview(webviewView.webview);
-            Logger.log(">>> [ChatViewProvider] _getHtmlForWebview returned.");
-            Logger.log(">>> [ChatViewProvider] Assigning webview.html...");
-            webviewView.webview.html = htmlContent;
-            Logger.log(">>> [ChatViewProvider] webview.html ASSIGNED successfully.");
-        } catch (error) {
-            Logger.error(`>>> [ChatViewProvider] ERROR getting or assigning HTML: ${error}`);
-            return;
-        }
+        this.sendInitialDataToWebview(); // Enviar datos iniciales (proveedores)
+        this.restoreChatHistoryToWebview(); // Enviar historial existente a la UI
 
-        // Enviar los datos iniciales a la webview
-        this.sendInitialDataToWebview();
+        // Listener de mensajes desde la webview
+        const messageListener = webviewView.webview.onDidReceiveMessage(async (message) => {
+             Logger.log(`>>> [ChatViewProvider] Mensaje recibido: ${message.command}`);
+             switch (message.command) {
+                 case 'sendMessage':
+                     if (typeof message.text === 'string') await this._handleUserMessage(message.text);
+                     break; // Cambiado de return a break
+                 case 'clearChat':
+                     this._clearChatHistory();
+                     this._sendMessageToWebview('clearChat', {});
+                     break;
+                 case 'exportChat': await this._exportChatToFile(); break;
+                 case 'setActiveProvider':
+                     if (typeof message.providerId === 'string') await this._configManager.setActiveProviderId(message.providerId);
+                     break;
+                 case 'openSettings':
+                     const extensionId = 'aik-pilot'; // <-- CAMBIA ESTO
+                     vscode.commands.executeCommand('workbench.action.openSettings', `${extensionId}`);
+                    //  vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${extensionId}`);
+                     break;
+                 // ... otros cases (log, error) ...
+             }
+        });
+        this._currentViewDisposables.push(messageListener);
 
-        // Configurar los listeners
-        try {
-            Logger.log(">>> [ChatViewProvider] Setting up message listener (webview -> extension)...");
-            const messageListener = webviewView.webview.onDidReceiveMessage(async (message) => {
-                Logger.log(`>>> [ChatViewProvider] Received message from webview: ${message.command}`);
-                switch (message.command) {
-                    case 'sendMessage':
-                        if (typeof message.text === 'string') {
-                            await this._handleUserMessage(message.text); // Llamar al método modificado
-                        }
-                        return;
-                    case 'clearChat':
-                        // *** CORRECCIÓN: Limpiar historial aquí ***
-                        this._conversationHistory.length = 0; // Vaciar el array
-                        this._sendMessageToWebview('clearChat', {});
-                        Logger.log('[ChatViewProvider] Chat history cleared.');
-                        return;
-                    case 'setActiveProvider':
-                        if (typeof message.providerId === 'string') {
-                            await this._configManager.setActiveProviderId(message.providerId);
-                            this._sendMessageToWebview('providerChanged', { newProviderId: message.providerId });
-                             // Limpiar historial al cambiar de proveedor? (Opcional)
-                             // this._conversationHistory.length = 0;
-                             // this._sendMessageToWebview('clearChat', {});
-                        }
-                        return;
-                    case 'log':
-                        Logger.log(`[Webview Log] ${message.level || 'INFO'}: ${message.message}`);
-                        return;
-                    case 'error':
-                        Logger.error(`[Webview Error] ${message.message}: ${JSON.stringify(message.error)}`);
-                        return;
-                }
-            });
-            this._currentViewDisposables.push(messageListener);
-            Logger.log(">>> [ChatViewProvider] Message listener SET successfully.");
-
-            Logger.log(">>> [ChatViewProvider] Setting up dispose listener...");
-            const disposeListener = webviewView.onDidDispose(() => {
-                Logger.log("[ChatViewProvider] ChatView disposed.");
-                this._disposeCurrentViewListeners();
-                this._view = undefined;
-            });
-            this._currentViewDisposables.push(disposeListener);
-            Logger.log(">>> [ChatViewProvider] Dispose listener SET successfully.");
-
-            Logger.log(">>> [ChatViewProvider] Setting up config change listener...");
-            const configChangeListener = vscode.workspace.onDidChangeConfiguration(e => {
-                if (e.affectsConfiguration('aik-pilot.activeProvider') || e.affectsConfiguration('aik-pilot.providers')) {
-                    Logger.log("[ChatViewProvider] Relevant configuration changed, updating webview data...");
-                    this.sendInitialDataToWebview();
-                }
-            });
-            this._currentViewDisposables.push(configChangeListener);
-            Logger.log(">>> [ChatViewProvider] Config change listener SET successfully.");
-
-        } catch (error) {
-            Logger.error(`>>> [ChatViewProvider] ERROR setting up listeners: ${error}`);
-        }
+        // Listener de dispose
+        const disposeListener = webviewView.onDidDispose(() => { /* ... limpiar ... */ });
+        this._currentViewDisposables.push(disposeListener);
 
         Logger.log(">>> [ChatViewProvider] resolveWebviewView FINISHED");
     }
 
-    // --- Método para enviar los datos iniciales a la Webview ---
-    private sendInitialDataToWebview() {
+    // Enviar datos iniciales (proveedores)
+    public sendInitialDataToWebview() {
+        /* ... código existente ... */
         Logger.log(">>> [ChatViewProvider] sendInitialDataToWebview START");
         if (this._view) {
             try {
                 const providers = this._configManager.allProvidersConfig;
                 const activeProviderId = this._configManager.activeProviderId;
-                const providerOptions = Object.entries(providers).map(([id, config]) => ({
-                    id: id,
-                    displayName: config.displayName
-                }));
-                const dataToSend = { providers: providerOptions, activeProviderId: activeProviderId };
-                Logger.log(">>> [ChatViewProvider] sendInitialDataToWebview: Data prepared:", dataToSend);
-                this._sendMessageToWebview('setInitialData', dataToSend);
-            } catch (error) {
-                 Logger.error(">>> [ChatViewProvider] sendInitialDataToWebview: ERROR preparing data:", error);
-            }
-        } else {
-            Logger.warn(">>> [ChatViewProvider] sendInitialDataToWebview: Cannot send, _view is undefined.");
+                const providerOptions = Object.entries(providers).map(([id, config]) => ({ id: id, displayName: config.displayName || id }));
+                this._sendMessageToWebview('setInitialData', { providers: providerOptions, activeProviderId });
+            } catch (error) { Logger.error(">>> Error preparando datos iniciales:", error); }
         }
         Logger.log(">>> [ChatViewProvider] sendInitialDataToWebview FINISHED");
     }
 
-
-    // --- Métodos de Lógica Interna y Comunicación ---
-    private _disposeCurrentViewListeners() {
-        Logger.log(`[ChatViewProvider] Disposing ${this._currentViewDisposables.length} listeners.`);
-        while(this._currentViewDisposables.length) {
-            const disposable = this._currentViewDisposables.pop();
-            if (disposable) { disposable.dispose(); }
-        }
-    }
-
-    // ***** MÉTODO MODIFICADO PARA USAR MEMORIA *****
-    private async _handleUserMessage(text: string) {
-        if (!text || !this._view) {
-            Logger.warn("[ChatViewProvider] _handleUserMessage called with empty text or no view.");
-            return;
-        }
-
-        Logger.log(`[ChatViewProvider] Handling user message: "${text}"`);
-
-        // 1. Añadir mensaje actual al HISTORIAL COMPLETO y enviar a UI
-        this._addUserMessage(text); // Llama a la función que hace push y postMessage
-
-        // ***** PUNTO CRÍTICO: Verificar el historial DESPUÉS de añadir *****
-        Logger.log(`>>> [ChatViewProvider] History AFTER addUserMessage (${this._conversationHistory.length} total): ${JSON.stringify(this._conversationHistory)}`);
-
-        // 2. Preparar el CONTEXTO (MEMORIA) para el LLM
-        //    Selecciona los últimos N mensajes del historial completo.
-        const messagesToSend = this._conversationHistory.slice(-MAX_MESSAGES_TO_SEND);
-
-        // ***** OTRO LOG CRÍTICO *****
-        Logger.log(`>>> [ChatViewProvider] messagesToSend calculated (${messagesToSend.length} slice): ${JSON.stringify(messagesToSend)}`);
-
-        Logger.log(`[ChatViewProvider] Sending last ${messagesToSend.length} messages (max ${MAX_MESSAGES_TO_SEND}) to LLM service.`);
-
-        // 3. Enviar el CONTEXTO SELECCIONADO al LlmService
-        try {
-            this._sendMessageToWebview('showThinking', { thinking: true });
-            // LlmService añadirá el system prompt si está configurado
-            const botResponse = await this._llmService.getChatCompletion(messagesToSend); // <-- Pasar la lista limitada
-            // 4. Añadir respuesta del bot al HISTORIAL COMPLETO y enviar a UI
-            this._addBotMessage(botResponse);
-        } catch (error) {
-            Logger.error(`[ChatViewProvider] Error received from LLM service: ${error}`);
-            this._sendMessageToWebview('showError', {
-                text: `Failed to get response: ${error instanceof Error ? error.message : String(error)}`
-            });
-        } finally {
-            this._sendMessageToWebview('showThinking', { thinking: false });
-        }
-    }
-    // ***** FIN MÉTODO MODIFICADO *****
-
-
-    private _addUserMessage(text: string) {
-        const userMessage: ChatMessage = { role: 'user', content: text };
-        // *** Asegurar que this._conversationHistory sea modificable ***
-        this._conversationHistory.push(userMessage); // Añade al historial completo
-        Logger.log(`[ChatViewProvider] Added user message to history. History length: ${this._conversationHistory.length}`);
-        this._sendMessageToWebview('addMessage', { sender: 'user', text });
-    }
-
-    private _addBotMessage(text: string) {
-        if (text?.trim()) {
-            const botMessage: ChatMessage = { role: 'assistant', content: text };
-             // *** Asegurar que this._conversationHistory sea modificable ***
-            this._conversationHistory.push(botMessage); // Añade al historial completo
-            Logger.log(`[ChatViewProvider] Added bot message to history. History length: ${this._conversationHistory.length}`);
-            this._sendMessageToWebview('addMessage', { sender: 'bot', text });
-        } else {
-            Logger.warn("[ChatViewProvider] Received empty/whitespace bot message, not adding.");
-        }
-    }
-
-    // Método centralizado para enviar mensajes a la webview
-    private _sendMessageToWebview(command: string, data: any) {
-        // Usar console.log aquí si reemplazaste Logger
-        Logger.log(`>>> [ChatViewProvider] _sendMessageToWebview: Attempting command '${command}' with data:`, data);
+    // Enviar historial al cargar la webview
+    private restoreChatHistoryToWebview() {
         if (this._view) {
-            this._view.webview.postMessage({ command, ...data })
-                .then((success) => {
-                     if (!success) {
-                          Logger.warn(`>>> [ChatViewProvider] _sendMessageToWebview: postMessage for command '${command}' returned false.`);
-                     } else {
-                           Logger.log(`>>> [ChatViewProvider] _sendMessageToWebview: Message for command '${command}' POSTED successfully.`);
-                     }
-                 }, (error) => {
-                     Logger.error(`>>> [ChatViewProvider] _sendMessageToWebview: Error posting message for command '${command}':`, error);
-                 });
-        } else {
-            Logger.warn(`>>> [ChatViewProvider] _sendMessageToWebview: Cannot send command '${command}', _view is undefined.`);
+            Logger.log(`[ChatViewProvider] Restaurando ${this._conversationHistory.length} mensajes a la UI.`);
+            this._sendMessageToWebview('clearChat', {}); // Limpiar UI primero
+            this._conversationHistory.forEach(msg => {
+                // Si es un mensaje pendiente, tratarlo como bot con su ID
+                const id = (msg as PendingMessage).id || null;
+                this._sendMessageToWebview('addMessage', {
+                    sender: msg.role === 'user' ? 'user' : 'bot', // Asistente o error como bot
+                    text: msg.content,
+                    messageId: id // Enviar ID si existe
+                });
+                // Si estaba en streaming, quizás mostrar indicador o reanudar? (complejo)
+                if ((msg as PendingMessage).isStreaming) {
+                     Logger.warn(`[ChatViewProvider] Mensaje ${id} estaba en streaming al recargar. No se reanuda.`);
+                }
+            });
         }
     }
-    // --- Fin Otros Métodos ---
 
+    // --- Manejo de Mensajes y Streaming ---
+    private async _handleUserMessage(text: string) {
+        if (!text || !this._view) return;
+        Logger.log(`[ChatViewProvider] Handling user message: "${text.substring(0, 50)}..."`);
 
-    // --- Método para generar el HTML de la Webview ---
-    private _getHtmlForWebview(webview: vscode.Webview): string {
-        // Obtener URIs seguros
-        const styleUri = webview.asWebviewUri(
-             vscode.Uri.joinPath(this._extensionUri, 'src', 'chat', 'webview', 'style.css')
-        );
-        const scriptUri = webview.asWebviewUri(
-             vscode.Uri.joinPath(this._extensionUri, 'src', 'chat', 'webview', 'main.js')
-        );
-        const nonce = getNonce();
+        // 1. Añadir mensaje de usuario al historial
+        const userMessage: ChatMessage = { role: 'user', content: text };
+        this._conversationHistory.push(userMessage);
+        // La UI añade el mensaje de usuario inmediatamente
 
-         // Devolver el HTML como una plantilla literal
-         return `
-             <!DOCTYPE html>
-             <html lang="en">
-             <head>
-                 <meta charset="UTF-8">
-                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: data:; font-src ${webview.cspSource}; connect-src 'none';">
-                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                 <link rel="stylesheet" href="${styleUri}">
-                 <title>AIK-Pilot Chat</title>
-                 <style nonce="${nonce}">
-                     #provider-selector-area { padding-bottom: 10px; border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-editorGroup-border)); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-                     #provider-selector { padding: 3px 6px; border: 1px solid var(--vscode-dropdown-border); background-color: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border-radius: 3px; flex-grow: 1; }
-                     #provider-selector:focus { outline: 1px solid var(--vscode-focusBorder); }
-                 </style>
-             </head>
-             <body>
-                 <div id="chat-container">
-                     <div id="provider-selector-area">
-                          <label for="provider-selector">LLM:</label>
-                          <select id="provider-selector"><option value="">Loading...</option></select>
-                     </div>
-                     <div id="message-list"></div>
-                     <div id="input-area">
-                        <textarea id="user-input" rows="3" placeholder="Ask something..."></textarea>
-                        <button id="send-button">Send</button>
-                     </div>
-                     <div id="status-area" style="display: none;">Thinking...</div>
-                 </div>
-                 <script nonce="${nonce}" src="${scriptUri}"></script>
-             </body>
-             </html>
-         `;
+        // 2. Preparar contexto para LLM (solo mensajes completos)
+        const messagesToSend = this._conversationHistory
+            .filter(msg => !(msg as PendingMessage).isStreaming) // Excluir mensajes aún en streaming
+            .slice(-MAX_MESSAGES_TO_SEND) as ChatMessage[]; // Asegurar tipo ChatMessage
+        Logger.log(`[ChatViewProvider] Enviando ${messagesToSend.length} mensajes (contexto) a LLM para streaming.`);
+
+        // 3. Crear placeholder para respuesta del bot en historial y UI
+        const botMessageId = `bot-msg-${Date.now()}-${Math.random().toString(16).substring(2)}`;
+        const pendingBotMessage: PendingMessage = {
+            id: botMessageId,
+            role: 'assistant',
+            content: '', // Inicia vacío
+            isStreaming: true
+        };
+        this._conversationHistory.push(pendingBotMessage);
+        this._sendMessageToWebview('addMessage', { sender: 'bot', text: '', messageId: botMessageId });
+        this._sendMessageToWebview('showThinking', { thinking: true });
+
+        // 4. Definir Callbacks y llamar al servicio LLM
+        const handleChunk = (chunk: string) => {
+            // Actualizar placeholder en historial
+            pendingBotMessage.content += chunk;
+            // Enviar chunk a la webview
+            this._sendMessageToWebview('updateMessageStream', { messageId: botMessageId, chunk });
+        };
+
+        const handleEnd = (error?: Error) => {
+            this._sendMessageToWebview('showThinking', { thinking: false });
+            pendingBotMessage.isStreaming = false; // Marcar como completado
+
+            if (error) {
+                Logger.error(`[ChatViewProvider] Error en stream LLM (ID: ${botMessageId}): ${error}`);
+                pendingBotMessage.content += `\n\n**Error en stream:** ${error.message}`; // Añadir error al contenido
+                pendingBotMessage.role = 'assistant'; // O un rol 'error' si lo manejas diferente
+                this._sendMessageToWebview('showError', { text: `Stream error: ${error.message}`, messageId: botMessageId });
+            } else {
+                Logger.log(`[ChatViewProvider] Stream finalizado (ID: ${botMessageId}). Respuesta completa (${pendingBotMessage.content.length} chars).`);
+                // Opcional: enviar mensaje de finalización para que la UI haga el renderizado final con formato
+                this._sendMessageToWebview('streamComplete', { messageId: botMessageId });
+            }
+            // Actualizar estado de VS Code (opcional, para persistencia entre sesiones)
+            // vscode.setState(...)
+        };
+
+        // 5. Llamar al LlmService (asume que getChatCompletion ahora acepta callbacks)
+        try {
+            await this._llmService.getChatCompletion(messagesToSend, handleChunk, handleEnd);
+        } catch (initialError) {
+            // Error al iniciar la llamada (antes de que el stream empiece)
+            Logger.error(`[ChatViewProvider] Error inicial al llamar a getChatCompletion (stream): ${initialError}`);
+            pendingBotMessage.isStreaming = false; // Marcar como no en streaming
+            pendingBotMessage.content = `**Error iniciando stream:** ${initialError instanceof Error ? initialError.message : String(initialError)}`;
+            this._sendMessageToWebview('showThinking', { thinking: false });
+            this._sendMessageToWebview('showError', { text: `Failed to start stream: ${pendingBotMessage.content}`, messageId: botMessageId });
+        }
     }
+
+    // Limpiar historial y UI
+    private _clearChatHistory() {
+        this._conversationHistory = [];
+        Logger.log('[ChatViewProvider] Internal conversation history cleared.');
+        // El mensaje 'clearChat' a la UI se envía desde el manejador
+    }
+
+    // Exportar chat
+    private async _exportChatToFile(): Promise<void> {
+         /* ... código de exportación existente ... */
+          if (this._conversationHistory.length === 0) {
+            vscode.window.showInformationMessage("Chat history is empty."); return;
+        }
+        Logger.log('[ChatViewProvider] Starting chat export...');
+        let markdownContent = `# AIK-Pilot Chat Export\n\n`;
+        try {
+            const activeProvider = this._configManager.getActiveProviderConfig();
+            markdownContent += `*Provider: ${activeProvider?.displayName || this._configManager.activeProviderId}*\n`;
+        } catch (e) { /* Ignorar */ }
+        markdownContent += `*Date: ${new Date().toLocaleString()}*\n\n---\n\n`;
+        // Filtrar mensajes incompletos si no se quieren exportar
+        this._conversationHistory.filter(msg => !(msg as PendingMessage).isStreaming).forEach(message => {
+            markdownContent += `**${message.role === 'user' ? 'You' : 'AIK-Pilot'}:**\n${message.content}\n\n`;
+        });
+        // ... (resto del código para guardar archivo) ...
+         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+         const suggestedFilename = `aik-pilot-chat-${timestamp}.md`;
+         const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri
+             ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, suggestedFilename)
+             : vscode.Uri.file(path.join(os.homedir(), suggestedFilename));
+         try {
+             const uri = await vscode.window.showSaveDialog({ defaultUri, filters: { 'Markdown': ['md'] }, title: "Export Chat" });
+             if (uri) {
+                 await vscode.workspace.fs.writeFile(uri, Buffer.from(markdownContent, 'utf8'));
+                 vscode.window.showInformationMessage(`Chat exported to ${path.basename(uri.fsPath)}`);
+             }
+         } catch (error) { Logger.error(`[ChatViewProvider] Error exporting chat: ${error}`); vscode.window.showErrorMessage(`Failed to export chat.`); }
+    }
+
+    // Envío de mensajes a la webview (con logging mejorado)
+    private _sendMessageToWebview(command: string, data: any) {
+        /* ... código _sendMessageToWebview con logging mejorado de respuesta anterior ... */
+         Logger.log(`>>> [ChatViewProvider] Intentando enviar a webview: Comando='${command}', Datos=${JSON.stringify(data).substring(0, 100)}...`);
+         if (this._view?.webview) {
+             this._view.webview.postMessage({ command, ...data })
+                 .then(
+                     (success) => {
+                          if (!success) Logger.warn(`>>> [ChatViewProvider] postMessage para '${command}' devolvió false.`);
+                          // else Logger.log(`>>> [ChatViewProvider] postMessage para '${command}' aparentemente exitoso.`);
+                      },
+                      (error) => { Logger.error(`>>> [ChatViewProvider] ERROR al ejecutar postMessage para '${command}':`, error); }
+                  );
+         } else {
+             Logger.warn(`>>> [ChatViewProvider] No se puede enviar comando '${command}', _view o webview no están definidos.`);
+         }
+    }
+
+    // Generación de HTML
+    private _getHtmlForWebview(webview: vscode.Webview): string {
+        /* ... código _getHtmlForWebview existente con el botón de ajustes ... */
+          const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'chat', 'webview', 'style.css'));
+          const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'chat', 'webview', 'main.js'));
+          const nonce = getNonce();
+
+          return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https: data:; font-src ${webview.cspSource}; connect-src 'none';">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link rel="stylesheet" href="${styleUri}">
+      <title>AIK-Pilot Chat</title>
+      <style>
+          /* Estilos inline mínimos o copia de los relevantes de style.css si es necesario */
+          #controls-area { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-editorGroup-border)); flex-wrap: wrap; }
+          #settings-button { margin-left: auto; padding: 2px 6px; font-size: 1.2em; background-color: transparent; border: none; color: var(--vscode-icon-foreground); cursor: pointer; }
+          #settings-button:hover { background-color: var(--vscode-toolbar-hoverBackground); }
+          .control-button { /* Estilos generales para otros botones */ }
+      </style>
+  </head>
+  <body>
+      <div id="chat-container">
+          <div id="controls-area">
+              <label for="provider-selector">Provider:</label>
+              <select id="provider-selector"><option value="">Loading...</option></select>
+              <button id="new-chat-button" class="control-button" title="Start New Chat">New</button>
+              <button id="export-chat-button" class="control-button" title="Export Chat History">Export</button>
+              <button id="settings-button" class="control-button" title="Abrir Ajustes de AIK-Pilot">⚙️</button>
+          </div>
+          <div id="message-list"></div>
+          <div id="input-area">
+              <textarea id="user-input" rows="3" placeholder="Ask AIK-Pilot..."></textarea>
+              <button id="send-button">Send</button>
+          </div>
+          <div id="status-area" style="display: none;">Thinking...</div>
+      </div>
+      <script nonce="${nonce}" src="${scriptUri}"></script>
+  </body>
+  </html>`;
+    }
+
+     // --- Limpieza ---
+    private _disposeCurrentViewListeners() {
+        Logger.log(`[ChatViewProvider] Limpiando ${this._currentViewDisposables.length} listeners.`);
+        vscode.Disposable.from(...this._currentViewDisposables).dispose();
+        this._currentViewDisposables = [];
+    }
+
 } // Fin de la clase ChatViewProvider
 
-// Función auxiliar para generar un nonce aleatorio
+// Función auxiliar Nonce
 function getNonce(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let nonce = '';
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     for (let i = 0; i < 32; i++) {
-        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
-    return nonce;
+    return text;
 }
